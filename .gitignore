@@ -4,3 +4,4 @@ bin/
 *.local
 .coverage
 .DS_Store
+.env

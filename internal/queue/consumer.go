@@ -49,7 +49,20 @@ func NewConsumerFromEnv(log *zap.SugaredLogger) (*Consumer, error) {
 		uploadRoutingKey: getEnv("AMQP_UPLOAD_ROUTING_KEY", "video.uploaded"),
 		queueName:        getEnv("AMQP_QUEUE", "transcoder.video.uploaded"),
 	}
-	conn, err := amqp.DialConfig(c.url, amqp.Config{Properties: amqp.Table{"connection_name": "transcoder"}})
+
+	retries := GetEnvInt("AMQP_CONNECT_RETRIES", 30)
+	backoffMS := GetEnvInt("AMQP_CONNECT_BACKOFF_MS", 1000)
+
+	var conn *amqp.Connection
+	var err error
+	for attempt := 1; attempt <= retries; attempt++ {
+		conn, err = amqp.DialConfig(c.url, amqp.Config{Properties: amqp.Table{"connection_name": "transcoder"}})
+		if err == nil {
+			break
+		}
+		log.Warnw("amqp dial failed, retrying", "attempt", attempt, "err", err)
+		time.Sleep(time.Duration(backoffMS) * time.Millisecond)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("amqp dial: %w", err)
 	}

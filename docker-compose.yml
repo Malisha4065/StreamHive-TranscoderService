@@ -13,15 +13,24 @@ services:
       - AZURE_STORAGE_KEY=${AZURE_STORAGE_KEY}
       - AZURE_BLOB_CONTAINER=uploadservicecontainer
       - CONCURRENCY=1
+      - AMQP_CONNECT_RETRIES=60
+      - AMQP_CONNECT_BACKOFF_MS=1000
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
     networks:
       - core
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4.0-management
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     networks: [core]
 networks:
   core: {}
