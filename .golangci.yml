@@ -1,0 +1,8 @@
+version: 1.60.1
+run:
+  timeout: 3m
+linters:
+  enable:
+    - govet
+    - gofmt
+    - revive

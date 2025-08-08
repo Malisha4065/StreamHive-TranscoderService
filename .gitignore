@@ -1,0 +1,6 @@
+bin/
+/tmp/
+*.log
+*.local
+.coverage
+.DS_Store

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcoder
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: transcoder }
+  template:
+    metadata:
+      labels: { app: transcoder }
+    spec:
+      containers:
+        - name: transcoder
+          image: ghcr.io/yourorg/transcoder:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AMQP_URL
+              valueFrom:
+                secretKeyRef: { name: rabbitmq, key: url }
+            - name: AMQP_EXCHANGE
+              value: streamhive
+            - name: AMQP_UPLOAD_ROUTING_KEY
+              value: video.uploaded
+            - name: AMQP_TRANSCODED_ROUTING_KEY
+              value: video.transcoded
+            - name: AMQP_QUEUE
+              value: transcoder.video.uploaded
+            - name: AZURE_STORAGE_ACCOUNT
+              valueFrom:
+                secretKeyRef: { name: azure-storage, key: account }
+            - name: AZURE_STORAGE_KEY
+              valueFrom:
+                secretKeyRef: { name: azure-storage, key: key }
+            - name: AZURE_BLOB_CONTAINER
+              value: uploadservicecontainer
+            - name: CONCURRENCY
+              value: "1"
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
