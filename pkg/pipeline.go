@@ -107,10 +107,17 @@ func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
 		_ = t.az.UploadFile(ctx, thumbPath, fmt.Sprintf("thumbnails/%s/%s.jpg", evt.UserID, evt.UploadID), "image/jpeg")
 	}
 
-	// Publish transcoded
+	// Publish transcoded with rich metadata so catalog can fill missing fields
 	out := map[string]any{
-		"uploadId": evt.UploadID,
-		"userId":   evt.UserID,
+		"uploadId":         evt.UploadID,
+		"userId":           evt.UserID,
+		"title":            evt.Title,
+		"description":      evt.Description,
+		"tags":             evt.Tags,
+		"category":         evt.Category,
+		"isPrivate":        evt.IsPrivate,
+		"originalFilename": evt.OriginalName,
+		"rawVideoPath":     evt.RawVideoPath,
 		"hls": map[string]any{
 			"masterUrl": fmt.Sprintf("%s/%s/%s", os.Getenv("AZURE_PUBLIC_BASE"), base, "master.m3u8"),
 		},
