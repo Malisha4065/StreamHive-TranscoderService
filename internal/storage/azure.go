@@ -113,3 +113,56 @@ func detectContentType(path string) string {
 	}
 	return "application/octet-stream"
 }
+
+// DeleteBlob deletes a single blob from Azure storage
+func (c *AzureClient) DeleteBlob(ctx context.Context, blobPath string) error {
+	_, err := c.service.DeleteBlob(ctx, c.container, blobPath, nil)
+	return err
+}
+
+// DeleteBlobsWithPrefix deletes all blobs with the given prefix from Azure storage
+func (c *AzureClient) DeleteBlobsWithPrefix(ctx context.Context, prefix string) error {
+	pager := c.service.NewListBlobsFlatPager(c.container, &azblob.ListBlobsFlatOptions{
+		Prefix: &prefix,
+	})
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list blobs with prefix %s: %w", prefix, err)
+		}
+
+		for _, blob := range page.Segment.BlobItems {
+			if blob.Name != nil {
+				if err := c.DeleteBlob(ctx, *blob.Name); err != nil {
+					return fmt.Errorf("failed to delete blob %s: %w", *blob.Name, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// BlobExists checks if a blob exists in Azure storage
+func (c *AzureClient) BlobExists(ctx context.Context, blobPath string) (bool, error) {
+	// Try to get blob properties to check if it exists
+	pager := c.service.NewListBlobsFlatPager(c.container, &azblob.ListBlobsFlatOptions{
+		Prefix: &blobPath,
+	})
+
+	if pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to check blob existence: %w", err)
+		}
+
+		for _, blob := range page.Segment.BlobItems {
+			if blob.Name != nil && *blob.Name == blobPath {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
