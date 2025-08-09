@@ -127,7 +127,13 @@ func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
 }
 
 func buildMaster(userId, uploadId string, ladder []string) string {
-	bw := map[string]int{"1080p": 5350000, "720p": 2996000, "480p": 1498000, "360p": 856000}
+	// Bandwidth should match actual encoded bitrates (video + audio)
+	bw := map[string]int{
+		"1080p": 5192000, // 5000k video + 192k audio
+		"720p":  2928000, // 2800k video + 128k audio
+		"480p":  1496000, // 1400k video + 96k audio
+		"360p":  864000,  // 800k video + 64k audio
+	}
 	resMap := map[string]string{"1080p": "1920x1080", "720p": "1280x720", "480p": "854x480", "360p": "640x360"}
 	if len(ladder) == 0 {
 		ladder = []string{"1080p", "720p", "480p", "360p"}
