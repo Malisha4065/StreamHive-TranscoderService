@@ -103,8 +103,12 @@ func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
 	// Thumbnail
 	thumbPath := filepath.Join(work, "thumb.jpg")
 	thumbCmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-ss", "1", "-i", inputPath, "-frames:v", "1", thumbPath)
+	var thumbnailURL string
 	if err := thumbCmd.Run(); err == nil {
-		_ = t.az.UploadFile(ctx, thumbPath, fmt.Sprintf("thumbnails/%s/%s.jpg", evt.UserID, evt.UploadID), "image/jpeg")
+		thumbBlobPath := fmt.Sprintf("thumbnails/%s/%s.jpg", evt.UserID, evt.UploadID)
+		if err := t.az.UploadFile(ctx, thumbPath, thumbBlobPath, "image/jpeg"); err == nil {
+			thumbnailURL = fmt.Sprintf("%s/%s", os.Getenv("AZURE_PUBLIC_BASE"), thumbBlobPath)
+		}
 	}
 
 	// Publish transcoded with rich metadata so catalog can fill missing fields
@@ -121,7 +125,8 @@ func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
 		"hls": map[string]any{
 			"masterUrl": fmt.Sprintf("%s/%s/%s", os.Getenv("AZURE_PUBLIC_BASE"), base, "master.m3u8"),
 		},
-		"ready": true,
+		"thumbnailUrl": thumbnailURL,
+		"ready":        true,
 	}
 	return t.pub.PublishJSON(ctx, out)
 }
