@@ -12,12 +12,12 @@ spec:
     spec:
       containers:
         - name: transcoder
-          image: ghcr.io/yourorg/transcoder:latest
-          imagePullPolicy: IfNotPresent
+          image: transcoder-service:local
+          imagePullPolicy: Never
           env:
             - name: AMQP_URL
               valueFrom:
-                secretKeyRef: { name: rabbitmq, key: url }
+                secretKeyRef: { name: video-catalog-secrets, key: AMQP_URL }
             - name: AMQP_EXCHANGE
               value: streamhive
             - name: AMQP_UPLOAD_ROUTING_KEY
@@ -34,6 +34,11 @@ spec:
                 secretKeyRef: { name: azure-storage, key: key }
             - name: AZURE_BLOB_CONTAINER
               value: uploadservicecontainer
+            - name: AZURE_PUBLIC_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: azure-public-config
+                  key: AZURE_PUBLIC_BASE
             - name: CONCURRENCY
               value: "1"
           resources:
