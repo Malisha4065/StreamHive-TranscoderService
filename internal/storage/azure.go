@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"io/ioutil"
 	"mime"
 	"net/url"
 	"os"
@@ -14,19 +15,27 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 )
 
+// Helper function to read secret from file or fallback to environment variable
+func getSecret(filePath, envVar string) string {
+	if data, err := ioutil.ReadFile(filePath); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return os.Getenv(envVar)
+}
+
 type AzureClient struct {
 	service   *azblob.Client
 	container string
 }
 
 func NewAzureClientFromEnv() (*AzureClient, error) {
-	container := os.Getenv("AZURE_BLOB_CONTAINER")
+	container := getSecret("/mnt/secrets-store/azure-storage-raw-container", "AZURE_BLOB_CONTAINER")
 	if container == "" {
 		container = "uploadservicecontainer"
 	}
-	acct := os.Getenv("AZURE_STORAGE_ACCOUNT")
+	acct := getSecret("/mnt/secrets-store/azure-storage-account", "AZURE_STORAGE_ACCOUNT")
 	sas := os.Getenv("AZURE_STORAGE_SAS_URL")
-	key := os.Getenv("AZURE_STORAGE_KEY")
+	key := getSecret("/mnt/secrets-store/azure-storage-key", "AZURE_STORAGE_KEY")
 
 	var svc *azblob.Client
 	if sas != "" {
