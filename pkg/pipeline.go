@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -40,6 +41,38 @@ type Transcoder struct {
 
 func NewTranscoder(log *zap.SugaredLogger, az *storage.AzureClient, pub *queue.Publisher) *Transcoder {
 	return &Transcoder{log: log, az: az, pub: pub}
+}
+
+// buildAzureURL constructs the full Azure Blob Storage URL for a given blob path
+func (t *Transcoder) buildAzureURL(blobPath string) string {
+	// Get Azure account name and container from secrets or environment
+	account := getSecret("/mnt/secrets-store/azure-storage-account", "AZURE_STORAGE_ACCOUNT")
+	container := getSecret("/mnt/secrets-store/azure-storage-raw-container", "AZURE_BLOB_CONTAINER")
+
+	if container == "" {
+		container = "uploadservicecontainer" // fallback
+	}
+
+	if account == "" {
+		// Fallback to environment variable approach for backwards compatibility
+		baseURL := os.Getenv("AZURE_PUBLIC_BASE")
+		if baseURL != "" {
+			return fmt.Sprintf("%s/%s", baseURL, blobPath)
+		}
+		// Last resort: return relative path (this was the original problem)
+		t.log.Warnw("Azure account not found, returning relative URL", "blobPath", blobPath)
+		return fmt.Sprintf("/%s", blobPath)
+	}
+
+	return fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", account, container, blobPath)
+}
+
+// Helper function to read secret from file or fallback to environment variable
+func getSecret(filePath, envVar string) string {
+	if data, err := os.ReadFile(filePath); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return os.Getenv(envVar)
 }
 
 func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
@@ -107,7 +140,7 @@ func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
 	if err := thumbCmd.Run(); err == nil {
 		thumbBlobPath := fmt.Sprintf("thumbnails/%s/%s.jpg", evt.UserID, evt.UploadID)
 		if err := t.az.UploadFile(ctx, thumbPath, thumbBlobPath, "image/jpeg"); err == nil {
-			thumbnailURL = fmt.Sprintf("%s/%s", os.Getenv("AZURE_PUBLIC_BASE"), thumbBlobPath)
+			thumbnailURL = t.buildAzureURL(thumbBlobPath)
 		}
 	}
 
@@ -123,7 +156,7 @@ func (t *Transcoder) Handle(ctx context.Context, body []byte) error {
 		"originalFilename": evt.OriginalName,
 		"rawVideoPath":     evt.RawVideoPath,
 		"hls": map[string]any{
-			"masterUrl": fmt.Sprintf("%s/%s/%s", os.Getenv("AZURE_PUBLIC_BASE"), base, "master.m3u8"),
+			"masterUrl": t.buildAzureURL(fmt.Sprintf("%s/%s", base, "master.m3u8")),
 		},
 		"thumbnailUrl": thumbnailURL,
 		"ready":        true,
