@@ -10,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	"strconv"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
+	"github.com/sony/gobreaker"
 )
 
 // Helper function to read secret from file or fallback to environment variable
@@ -26,6 +29,7 @@ func getSecret(filePath, envVar string) string {
 type AzureClient struct {
 	service   *azblob.Client
 	container string
+	breaker   *gobreaker.CircuitBreaker
 }
 
 func NewAzureClientFromEnv() (*AzureClient, error) {
@@ -58,7 +62,12 @@ func NewAzureClientFromEnv() (*AzureClient, error) {
 			return nil, err
 		}
 	}
-	return &AzureClient{service: svc, container: container}, nil
+	cbTimeout := 10 * time.Second
+	if v := os.Getenv("TRANSCODER_CB_RESET_MS"); v != "" { if d, err := time.ParseDuration(v+"ms"); err == nil { cbTimeout = d } }
+	cbFailures := uint32(5)
+	if v := os.Getenv("TRANSCODER_CB_CONSECUTIVE_FAILS"); v != "" { if n, err := strconv.Atoi(v); err == nil && n > 0 { cbFailures = uint32(n) } }
+	breaker := gobreaker.NewCircuitBreaker(gobreaker.Settings{ Name: "azure-storage", Timeout: cbTimeout, ReadyToTrip: func(c gobreaker.Counts) bool { return c.ConsecutiveFailures >= cbFailures } })
+	return &AzureClient{service: svc, container: container, breaker: breaker}, nil
 }
 
 func (c *AzureClient) DownloadTo(ctx context.Context, blobPath, localPath string) error {
@@ -70,8 +79,21 @@ func (c *AzureClient) DownloadTo(ctx context.Context, blobPath, localPath string
 		return err
 	}
 	defer f.Close()
-	_, err = c.service.DownloadFile(ctx, c.container, blobPath, f, nil)
-	return err
+	attemptTimeout := 5 * time.Second
+	if v := os.Getenv("TRANSCODER_AZURE_TIMEOUT_MS"); v != "" { if d, err := time.ParseDuration(v+"ms"); err == nil { attemptTimeout = d } }
+	retries := 2
+	if v := os.Getenv("TRANSCODER_AZURE_RETRIES"); v != "" { if n, err := strconv.Atoi(v); err == nil && n >= 0 { retries = n } }
+	var last error
+	backoff := 200 * time.Millisecond
+	for i := 0; i <= retries; i++ {
+		dctx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		_, err = c.breaker.Execute(func() (interface{}, error) { return c.service.DownloadFile(dctx, c.container, blobPath, f, nil) })
+		cancel()
+		if err == nil { return nil }
+		last = err
+		if i < retries { time.Sleep(backoff); if backoff < 1500*time.Millisecond { backoff *= 2 } }
+	}
+	return last
 }
 
 func (c *AzureClient) UploadFile(ctx context.Context, localPath, blobPath string, contentType string) error {
@@ -81,8 +103,21 @@ func (c *AzureClient) UploadFile(ctx context.Context, localPath, blobPath string
 	}
 	defer f.Close()
 	headers := &blob.HTTPHeaders{BlobContentType: &contentType}
-	_, err = c.service.UploadFile(ctx, c.container, blobPath, f, &azblob.UploadFileOptions{HTTPHeaders: headers})
-	return err
+	attemptTimeout := 10 * time.Second
+	if v := os.Getenv("TRANSCODER_AZURE_TIMEOUT_MS"); v != "" { if d, err := time.ParseDuration(v+"ms"); err == nil { attemptTimeout = d } }
+	retries := 2
+	if v := os.Getenv("TRANSCODER_AZURE_RETRIES"); v != "" { if n, err := strconv.Atoi(v); err == nil && n >= 0 { retries = n } }
+	var last error
+	backoff := 200 * time.Millisecond
+	for i := 0; i <= retries; i++ {
+		uctx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		_, err = c.breaker.Execute(func() (interface{}, error) { return c.service.UploadFile(uctx, c.container, blobPath, f, &azblob.UploadFileOptions{HTTPHeaders: headers}) })
+		cancel()
+		if err == nil { return nil }
+		last = err
+		if i < retries { time.Sleep(backoff); if backoff < 1500*time.Millisecond { backoff *= 2 } }
+	}
+	return last
 }
 
 func (c *AzureClient) UploadDir(ctx context.Context, localRoot, blobPrefix string) error {
